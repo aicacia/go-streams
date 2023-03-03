@@ -1,0 +1,487 @@
+basePath: /
+definitions:
+  models.AnswerST:
+    properties:
+      answer_base64:
+        type: string
+    required:
+    - answer_base64
+    type: object
+  models.CameraST:
+    properties:
+      created_ts:
+        type: string
+      disabled:
+        type: boolean
+      id:
+        type: string
+      name:
+        type: string
+      recording:
+        type: boolean
+      rtsp_url:
+        type: string
+      updated_ts:
+        type: string
+      url:
+        type: string
+    required:
+    - created_ts
+    - disabled
+    - id
+    - name
+    - recording
+    - rtsp_url
+    - updated_ts
+    - url
+    type: object
+  models.OfferBodyST:
+    properties:
+      offer_base64:
+        type: string
+    required:
+    - offer_base64
+    type: object
+  models.ResponseErrorST:
+    properties:
+      error:
+        type: string
+    required:
+    - error
+    type: object
+  services.CameraCreateST:
+    properties:
+      disabled:
+        type: boolean
+      name:
+        type: string
+      recording:
+        type: boolean
+      rtsp_url:
+        type: string
+      url:
+        type: string
+    type: object
+  services.CameraUpdateST:
+    properties:
+      disabled:
+        type: boolean
+      name:
+        type: string
+      recording:
+        type: boolean
+      rtsp_url:
+        type: string
+      url:
+        type: string
+    type: object
+host: localhost:8080
+info:
+  contact:
+    email: nathanfaucett@email.com
+    name: Nathan Faucett
+  description: Streams API
+  license:
+    name: Apache 2.0
+    url: http://www.apache.org/licenses/LICENSE-2.0.html
+  termsOfService: http://streams.aicacia.com/terms
+  title: Streams
+  version: 0.0.0
+paths:
+  /cameras:
+    get:
+      consumes:
+      - application/json
+      description: list all cameras
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/models.CameraST'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ResponseErrorST'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.ResponseErrorST'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ResponseErrorST'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ResponseErrorST'
+      summary: Get Cameras
+      tags:
+      - cameras
+    post:
+      consumes:
+      - application/json
+      description: create a camera
+      parameters:
+      - description: Create Camera
+        in: body
+        name: camera
+        required: true
+        schema:
+          $ref: '#/definitions/services.CameraCreateST'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.CameraST'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ResponseErrorST'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.ResponseErrorST'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ResponseErrorST'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ResponseErrorST'
+      summary: Create Camera
+      tags:
+      - cameras
+  /cameras/{cameraId}:
+    delete:
+      consumes:
+      - application/json
+      description: delette camera by id
+      parameters:
+      - description: Camera ID
+        in: path
+        name: cameraId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+          schema:
+            type: "null"
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ResponseErrorST'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.ResponseErrorST'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ResponseErrorST'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ResponseErrorST'
+      summary: Delete Camera
+      tags:
+      - cameras
+    get:
+      consumes:
+      - application/json
+      description: get camera by id
+      parameters:
+      - description: Camera ID
+        in: path
+        name: cameraId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.CameraST'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ResponseErrorST'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.ResponseErrorST'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ResponseErrorST'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ResponseErrorST'
+      summary: Get Camera by id
+      tags:
+      - cameras
+    patch:
+      consumes:
+      - application/json
+      description: update a camera by id
+      parameters:
+      - description: Camera ID
+        in: path
+        name: cameraId
+        required: true
+        type: string
+      - description: Update Camera
+        in: body
+        name: camera
+        required: true
+        schema:
+          $ref: '#/definitions/services.CameraUpdateST'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.CameraST'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ResponseErrorST'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.ResponseErrorST'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ResponseErrorST'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ResponseErrorST'
+      summary: Update Camera
+      tags:
+      - cameras
+  /cameras/{cameraId}/live/codecs:
+    get:
+      consumes:
+      - application/json
+      description: get camera live codecs
+      parameters:
+      - description: Camera ID
+        in: path
+        name: cameraId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              type: string
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ResponseErrorST'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.ResponseErrorST'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ResponseErrorST'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ResponseErrorST'
+      summary: Get Live Codecs
+      tags:
+      - cameras
+      - live
+  /cameras/{cameraId}/live/sdp:
+    post:
+      consumes:
+      - application/json
+      description: send live offer for camera by id
+      parameters:
+      - description: Camera ID
+        in: path
+        name: cameraId
+        required: true
+        type: string
+      - description: Offer body
+        in: body
+        name: offer
+        required: true
+        schema:
+          $ref: '#/definitions/models.OfferBodyST'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.AnswerST'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ResponseErrorST'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.ResponseErrorST'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ResponseErrorST'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ResponseErrorST'
+      summary: Send live offer
+      tags:
+      - cameras
+      - live
+  /cameras/{cameraId}/playback:
+    post:
+      consumes:
+      - application/json
+      description: create a new camera playback
+      parameters:
+      - description: Camera ID
+        in: path
+        name: cameraId
+        required: true
+        type: string
+      - description: Playback start time
+        in: query
+        name: start
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: string
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ResponseErrorST'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.ResponseErrorST'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ResponseErrorST'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ResponseErrorST'
+      summary: Create Playback
+      tags:
+      - cameras
+      - playback
+  /playback/{playbackId}/codecs:
+    get:
+      consumes:
+      - application/json
+      description: get camera playback codecs
+      parameters:
+      - description: Playback ID
+        in: path
+        name: playbackId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              type: string
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ResponseErrorST'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.ResponseErrorST'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ResponseErrorST'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ResponseErrorST'
+      summary: Get Playbaack Codecs
+      tags:
+      - cameras
+      - playback
+  /playback/{playbackId}/sdp:
+    post:
+      consumes:
+      - application/json
+      description: send playback offer for camera by id
+      parameters:
+      - description: Playback ID
+        in: path
+        name: playbackId
+        required: true
+        type: string
+      - description: Offer body
+        in: body
+        name: offer
+        required: true
+        schema:
+          $ref: '#/definitions/models.OfferBodyST'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.AnswerST'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ResponseErrorST'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.ResponseErrorST'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ResponseErrorST'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ResponseErrorST'
+      summary: Send playback offer
+      tags:
+      - cameras
+      - playback
+swagger: "2.0"

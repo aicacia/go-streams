@@ -1,0 +1,5 @@
+.DS_Store
+/ui.log
+/.vscode/
+/streams
+.history
