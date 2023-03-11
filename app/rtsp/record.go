@@ -1,19 +1,19 @@
 package rtsp
 
 import (
+	"bufio"
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"os"
 	"path"
-	"strconv"
 	"sync"
 	"time"
 
 	"github.com/aicacia/streams/app/config"
 	"github.com/aicacia/streams/app/rtsp/cameras"
+	"github.com/aicacia/streams/app/util"
 	"github.com/aicacia/streams/pubsub"
 	"github.com/deepch/vdk/av"
 )
@@ -86,153 +86,105 @@ func startRecording(cameraId string, packets *chan av.Packet, codecs []av.CodecD
 	for {
 		start := time.Now().UTC()
 		folderPath := getFolderPath(cameraId, &start)
-		mkdir_err := os.MkdirAll(folderPath, os.ModePerm)
-		if mkdir_err != nil {
-			log.Printf("%s: Failed to create recording folder %s", cameraId, mkdir_err)
+
+		mkdirErr := os.MkdirAll(folderPath, os.ModePerm)
+		if mkdirErr != nil {
+			log.Printf("%s: Failed to create recording folder %s", cameraId, mkdirErr)
 		}
+
 		recordingFilePath := getRecordingFilePath(folderPath, &start)
-		packet_file, packet_file_err := os.OpenFile(recordingFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0700)
-		if packet_file_err != nil {
-			log.Printf("%s: Failed to create recording file %s", cameraId, packet_file_err)
+		packetFile, packetFileErr := os.OpenFile(recordingFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
+		if packetFileErr != nil {
+			log.Printf("%s: Failed to create recording file %s", cameraId, packetFileErr)
 		}
+
 		metaFilePath := getMetaFilePath(folderPath, &start)
-		meta_file, meta_file_err := os.OpenFile(metaFilePath, os.O_CREATE|os.O_WRONLY, 0700)
-		if meta_file_err != nil {
-			log.Printf("%s: Failed to create recording file %s", cameraId, meta_file_err)
+		metaFile, metaFileErr := os.OpenFile(metaFilePath, os.O_CREATE|os.O_WRONLY, 0600)
+		if metaFileErr != nil {
+			log.Printf("%s: Failed to create recording file %s", cameraId, metaFileErr)
 		}
 		codecs := GetCurrentCodecs(cameraId)
-		meta_json_bytes, meta_json_err := json.Marshal(&RecordingMetaST{
+		metaBytes, metaErr := util.ToBytes(&RecordingMetaST{
 			Codecs: codecs,
 		})
-		if meta_json_err != nil {
-			log.Printf("%s: Failed to create meta file %s", cameraId, meta_json_err)
+		if metaErr != nil {
+			log.Printf("%s: Failed to create meta file %s", cameraId, metaErr)
 		}
-		_, meta_file_write_err := meta_file.Write(meta_json_bytes)
-		if meta_file_write_err != nil {
-			log.Printf("%s: Failed to create meta file %s", cameraId, meta_file_write_err)
+		_, metaFileWriteErr := metaFile.Write(metaBytes)
+		if metaFileWriteErr != nil {
+			log.Printf("%s: Failed to create meta file %s", cameraId, metaFileWriteErr)
 		}
 		for packet := range *packets {
-			_, write_err := packet_file.Write(packetToLine(&packet))
-			if write_err != nil {
-				log.Printf("%s: Failed to write packet %s", cameraId, write_err)
+			bytes, bytesErr := packetToBytes(&packet)
+			if bytesErr != nil {
+				log.Printf("%s: Failed to convert packet to bytes %s", cameraId, bytesErr)
+			}
+			_, writeErr := packetFile.Write(bytes)
+			if writeErr != nil {
+				log.Printf("%s: Failed to write packet %s", cameraId, writeErr)
 			}
 			if time.Since(start) >= time.Minute {
 				break
 			}
 		}
-		packet_file.Close()
-		meta_file.Close()
+		packetFile.Close()
+		metaFile.Close()
 	}
 }
 
-var PACKET_NEWLINE_BYTES = []byte{89, 50, 78, 47}
+var PACKET_NEWLINE_BYTES = []byte{'\n', '\n', '\n', '\n'}
 
-func packetToLine(packet *av.Packet) []byte {
-	bytes := ([]byte)(fmt.Sprintf("%v,%d,%d,%d,", packet.IsKeyFrame, packet.Idx, packet.Time, packet.Duration))
-	padSize := len(packet.Data) % 4
-	if padSize != 0 {
-		tmp := make([]byte, len(packet.Data)+padSize)
-		copy(tmp, packet.Data)
-		bytes = append(bytes, byte(padSize))
-		bytes = append(bytes, tmp...)
-	} else {
-		bytes = append(bytes, packet.Data...)
+func scanLines(data []byte, atEOF bool) (advance int, token []byte, err error) {
+	if atEOF && len(data) == 0 {
+		return 0, nil, nil
 	}
-	bytes = append(bytes, PACKET_NEWLINE_BYTES...)
-	return bytes
-}
-func ReadPacket(reader io.Reader) (*av.Packet, error) {
-	start := time.Now()
-
-	isKeyFrameBytes, err := readBytesUntil(reader, ',')
-	if err != nil {
-		return nil, err
+	for i := 0; i+len(PACKET_NEWLINE_BYTES) <= len(data); {
+		j := i + bytes.IndexByte(data[i:], PACKET_NEWLINE_BYTES[0])
+		if j < i {
+			break
+		}
+		if bytes.Equal(data[j+1:j+len(PACKET_NEWLINE_BYTES)], PACKET_NEWLINE_BYTES[1:]) {
+			return j + len(PACKET_NEWLINE_BYTES), data[0:j], nil
+		}
+		i = j + 1
 	}
-	idxBytes, err := readBytesUntil(reader, ',')
-	if err != nil {
-		return nil, err
+	if atEOF {
+		return len(data), data, nil
 	}
-	timeBytes, err := readBytesUntil(reader, ',')
-	if err != nil {
-		return nil, err
-	}
-	durationBytes, err := readBytesUntil(reader, ',')
-	if err != nil {
-		return nil, err
-	}
-	data, err := readPacketData(reader)
-	if err != nil {
-		return nil, err
-	}
-
-	isKeyFrameBool, err := strconv.ParseBool(string(isKeyFrameBytes))
-	if err != nil {
-		return nil, err
-	}
-	idxInt, err := strconv.Atoi(string(idxBytes))
-	if err != nil {
-		return nil, err
-	}
-	timeInt64, err := strconv.ParseInt(string(timeBytes), 10, 64)
-	if err != nil {
-		return nil, err
-	}
-	durationInt64, err := strconv.ParseInt(string(durationBytes), 10, 64)
-	if err != nil {
-		return nil, err
-	}
-
-	return &av.Packet{
-		IsKeyFrame:      isKeyFrameBool,
-		Idx:             int8(idxInt),
-		CompositionTime: time.Since(start),
-		Time:            time.Duration(timeInt64),
-		Duration:        time.Duration(durationInt64),
-		Data:            data,
-	}, nil
+	return 0, nil, nil
 }
 
-func readBytesUntil(reader io.Reader, stopCh byte) ([]byte, error) {
-	var b = make([]byte, 1)
-	var bytes []byte
-	for {
-		_, err := reader.Read(b)
+type PacketScanner = bufio.Scanner
+
+func NewPacketScanner(reader io.Reader) *PacketScanner {
+	scanner := bufio.NewScanner(reader)
+	scanner.Buffer(make([]byte, 0, 1024*1024), 8*1024*1024)
+	scanner.Split(scanLines)
+	return scanner
+}
+
+func PacketScannerRead(scanner *PacketScanner) (*av.Packet, error) {
+	if scanner.Scan() {
+		var packet av.Packet
+		err := util.FromBytes(scanner.Bytes(), &packet)
 		if err != nil {
 			return nil, err
 		}
-		ch := b[0]
-		if ch == stopCh {
-			break
-		} else {
-			bytes = append(bytes, ch)
-		}
+		return &packet, nil
 	}
-	return bytes, nil
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return nil, io.EOF
 }
 
-func readPacketData(reader io.Reader) ([]byte, error) {
-	var data []byte
-	read_bytes := make([]byte, 4)
-	for {
-		_, err := reader.Read(read_bytes)
-		if err != nil {
-			if err == io.EOF {
-				break
-			} else {
-				return nil, err
-			}
-		} else if bytes.Equal(read_bytes, PACKET_NEWLINE_BYTES) {
-			padSize := int(data[len(data)-5])
-			if padSize != 0 {
-				tmp := make([]byte, len(data)-padSize-1)
-				copy(tmp, data)
-				data = tmp
-			}
-		} else {
-			data = append(data, read_bytes...)
-		}
+func packetToBytes(packet *av.Packet) ([]byte, error) {
+	bytes, bytesErr := util.ToBytes(packet)
+	if bytesErr != nil {
+		return nil, bytesErr
 	}
-	return data, nil
+	bytes = append(bytes, PACKET_NEWLINE_BYTES...)
+	return bytes, nil
 }
 
 func runRecord(subscriber *pubsub.Subscriber[cameras.CameraEventST]) {

@@ -8,13 +8,12 @@ import (
 	"github.com/aicacia/streams/app"
 	"github.com/aicacia/streams/app/config"
 	"github.com/aicacia/streams/app/rtsp"
+	_ "github.com/aicacia/streams/docs"
 	"github.com/aicacia/streams/pkg/router"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/fiber/v2/middleware/monitor"
 	"github.com/gofiber/fiber/v2/middleware/recover"
-
-	_ "github.com/aicacia/streams/docs"
 )
 
 var (

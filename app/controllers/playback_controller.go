@@ -1,9 +1,9 @@
 package controllers
 
 import (
-	"encoding/json"
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/aicacia/streams/app/config"
@@ -22,7 +22,7 @@ import (
 //		@Accept			json
 //		@Produce		json
 //	    @Param			cameraId	path		string	true	"Camera ID"
-//	    @Param			start	    query		string	true	"Playback start time"
+//	    @Param			start	    query		int64	true	"Playback start time"
 //		@Success		200	{object}	string
 //		@Failure		400	{object}	models.ResponseErrorST
 //		@Failure		401	{object}	models.ResponseErrorST
@@ -31,18 +31,20 @@ import (
 //		@Router			/cameras/{cameraId}/playback [post]
 func PostCreatePlayback(c *fiber.Ctx) error {
 	cameraId := c.Params("cameraId")
-	startString := c.Params("start")
+	startString := c.Query("start")
 	var start *time.Time
 	if len(startString) != 0 {
-		err := json.Unmarshal(([]byte)(startString), start)
+		timestampMS, err := strconv.ParseInt(startString, 10, 64)
 		if err != nil {
 			c.Status(http.StatusBadRequest)
 			return c.JSON(models.ResponseErrorST{
 				Error: "Invalid start time",
 			})
 		}
+		t := time.UnixMilli(timestampMS).UTC()
+		start = &t
 	}
-	playback_id, err := rtsp.NewPlayback(cameraId, start)
+	playbackId, err := rtsp.NewPlayback(cameraId, start)
 	if err != nil {
 		c.Status(http.StatusBadRequest)
 		return c.JSON(models.ResponseErrorST{
@@ -50,7 +52,7 @@ func PostCreatePlayback(c *fiber.Ctx) error {
 		})
 	}
 	c.Status(http.StatusOK)
-	return c.JSON(playback_id)
+	return c.JSON(playbackId)
 }
 
 // Auth GetPlaybackCodecs
@@ -68,8 +70,8 @@ func PostCreatePlayback(c *fiber.Ctx) error {
 //		@Failure		500	{object}	models.ResponseErrorST
 //		@Router			/playback/{playbackId}/codecs [get]
 func GetPlaybackCodecs(c *fiber.Ctx) error {
-	cameraId := c.Params("cameraId")
-	codecs := rtsp.GetCodecs(cameraId)
+	playbackId := c.Params("playbackId")
+	codecs := rtsp.GetPlaybackCodecs(playbackId)
 	if codecs == nil {
 		c.Status(http.StatusInternalServerError)
 		return c.JSON(models.ResponseErrorST{
@@ -96,7 +98,7 @@ func GetPlaybackCodecs(c *fiber.Ctx) error {
 //		@Failure		500	{object}	models.ResponseErrorST
 //		@Router			/playback/{playbackId}/sdp [post]
 func PostPlaybackSdp(c *fiber.Ctx) error {
-	cameraId := c.Params("cameraId")
+	playbackId := c.Params("playbackId")
 	var body models.OfferBodyST
 	if err := c.BodyParser(&body); err != nil {
 		log.Println(err)
@@ -105,7 +107,7 @@ func PostPlaybackSdp(c *fiber.Ctx) error {
 			Error: "Invalid Request Body",
 		})
 	}
-	codecs := rtsp.GetCodecs(cameraId)
+	codecs := rtsp.GetPlaybackCodecs(playbackId)
 	if codecs == nil {
 		c.Status(http.StatusInternalServerError)
 		return c.JSON(models.ResponseErrorST{
@@ -129,9 +131,9 @@ func PostPlaybackSdp(c *fiber.Ctx) error {
 			Error: "Failed to Start stream",
 		})
 	}
-	viewer := rtsp.AddViewer(cameraId)
-	if viewer == nil {
-		log.Printf("Failed to create viewer for %s\n", cameraId)
+	socket := rtsp.GetPlaybackSocket(playbackId)
+	if socket == nil {
+		log.Printf("Failed to create viewer for %s\n", playbackId)
 		c.Status(http.StatusInternalServerError)
 		return c.JSON(models.ResponseErrorST{
 			Error: "Failed to Create viewer for stream",
@@ -139,7 +141,7 @@ func PostPlaybackSdp(c *fiber.Ctx) error {
 	}
 
 	go func() {
-		defer rtsp.DeleteViewer(cameraId, &viewer.Uuid)
+		defer rtsp.PlaybackDelete(playbackId)
 		defer muxerWebRTC.Close()
 
 		var videoStart bool
@@ -147,9 +149,9 @@ func PostPlaybackSdp(c *fiber.Ctx) error {
 		for {
 			select {
 			case <-noVideo.C:
-				log.Printf("No packets for 10s closing WebRTC connection %s\n", cameraId)
+				log.Printf("No packets for 10s closing WebRTC connection %s\n", playbackId)
 				return
-			case packet := <-viewer.Socket:
+			case packet := <-socket:
 				if packet.IsKeyFrame || audioOnly {
 					noVideo.Reset(10 * time.Second)
 					videoStart = true

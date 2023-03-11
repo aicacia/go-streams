@@ -184,6 +184,22 @@ func GetCurrentCodecs(cameraId string) []av.CodecData {
 	return nil
 }
 
+type simpleCodecDataST struct {
+	codecType av.CodecType
+}
+
+func (s simpleCodecDataST) Type() av.CodecType {
+	return s.codecType
+}
+
+func CreateCodecDataFromCodecTypes(codecTypes []av.CodecType) []av.CodecData {
+	var codecs []av.CodecData
+	for _, codecType := range codecTypes {
+		codecs = append(codecs, simpleCodecDataST{codecType: codecType})
+	}
+	return codecs
+}
+
 func GetCodecs(cameraId string) []av.CodecData {
 	for i := 0; i < config.Config.RTSP.Connect.Timeout.Seconds*10; i++ {
 		clientsMutex.RLock()

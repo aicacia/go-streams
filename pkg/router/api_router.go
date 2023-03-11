@@ -37,8 +37,8 @@ func (h ApiRouter) InstallRouter(app *fiber.App) {
 
 	playback := group.Group("/playback")
 	playback_by_id := playback.Group("/:playbackId")
-	playback_by_id.Get("/codecs", controllers.GetLiveCodecs)
-	playback_by_id.Post("/sdp", controllers.PostLiveSdp)
+	playback_by_id.Get("/codecs", controllers.GetPlaybackCodecs)
+	playback_by_id.Post("/sdp", controllers.PostPlaybackSdp)
 }
 
 func NewApiRouter() *ApiRouter {

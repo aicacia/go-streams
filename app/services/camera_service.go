@@ -40,9 +40,9 @@ func writeCamera(path string, camera *models.CameraST) error {
 	if err != nil {
 		return err
 	}
-	write_err := os.WriteFile(path, bytes, 0644)
-	if write_err != nil {
-		return write_err
+	writeErr := os.WriteFile(path, bytes, 0600)
+	if writeErr != nil {
+		return writeErr
 	}
 	return nil
 }
@@ -106,9 +106,9 @@ func CreateCamera(create_camera *CameraCreateST) (*models.CameraST, error) {
 		CreatedTs: time.Now().UTC(),
 		UpdatedTs: time.Now().UTC(),
 	}
-	write_err := writeCamera(cameraPath(id), &camera)
-	if write_err != nil {
-		return nil, write_err
+	writeErr := writeCamera(cameraPath(id), &camera)
+	if writeErr != nil {
+		return nil, writeErr
 	}
 	cameras.AddCamera(&camera)
 	return &camera, nil

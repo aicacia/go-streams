@@ -1,7 +1,9 @@
 package util
 
 import (
+	"bytes"
 	"crypto/tls"
+	"encoding/gob"
 	"hash/fnv"
 	"log"
 	"net/http"
@@ -9,6 +11,27 @@ import (
 
 	"github.com/deepch/vdk/av"
 )
+
+func ToBytes(e any) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := gob.NewEncoder(&buf)
+	err := enc.Encode(e)
+	if err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+
+}
+
+func FromBytes(b []byte, e any) error {
+	var buf bytes.Buffer
+	_, err := buf.Write(b)
+	if err != nil {
+		return err
+	}
+	dec := gob.NewDecoder(&buf)
+	return dec.Decode(e)
+}
 
 func Contains[T comparable](elems []T, v T) bool {
 	for _, s := range elems {
