@@ -114,7 +114,6 @@ func PostPlaybackSdp(c *fiber.Ctx) error {
 			Error: "Stream Codec Not Found",
 		})
 	}
-	audioOnly := util.IsAudioOnly(codecs)
 
 	muxerWebRTC := webrtc.NewMuxer(webrtc.Options{
 		ICEServers:    config.Config.Ice.Servers,
@@ -144,26 +143,11 @@ func PostPlaybackSdp(c *fiber.Ctx) error {
 		defer rtsp.PlaybackDelete(playbackId)
 		defer muxerWebRTC.Close()
 
-		var videoStart bool
-		noVideo := time.NewTimer(10 * time.Second)
-		for {
-			select {
-			case <-noVideo.C:
-				log.Printf("No packets for 10s closing WebRTC connection %s\n", playbackId)
+		for packet := range socket {
+			err = muxerWebRTC.WritePacket(packet)
+			if err != nil {
+				log.Println("WritePacket", err)
 				return
-			case packet := <-socket:
-				if packet.IsKeyFrame || audioOnly {
-					noVideo.Reset(10 * time.Second)
-					videoStart = true
-				}
-				if !videoStart && !audioOnly {
-					continue
-				}
-				err = muxerWebRTC.WritePacket(packet)
-				if err != nil {
-					log.Println("WritePacket", err)
-					return
-				}
 			}
 		}
 	}()

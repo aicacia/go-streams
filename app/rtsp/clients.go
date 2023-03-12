@@ -268,6 +268,7 @@ func DeleteViewer(cameraId string, uuid *uuid.UUID) {
 		viewersMutex.Lock()
 		delete(viewers, uuidString)
 		viewersMutex.Unlock()
+		log.Printf("%s: Closed camera viewer %s", cameraId, uuidString)
 	}
 }
 

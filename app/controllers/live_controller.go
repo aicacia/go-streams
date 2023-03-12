@@ -3,7 +3,6 @@ package controllers
 import (
 	"log"
 	"net/http"
-	"time"
 
 	"github.com/aicacia/streams/app/config"
 	"github.com/aicacia/streams/app/models"
@@ -72,7 +71,6 @@ func PostLiveSdp(c *fiber.Ctx) error {
 			Error: "Stream Codec Not Found",
 		})
 	}
-	audioOnly := util.IsAudioOnly(codecs)
 
 	muxerWebRTC := webrtc.NewMuxer(webrtc.Options{
 		ICEServers:    config.Config.Ice.Servers,
@@ -102,26 +100,11 @@ func PostLiveSdp(c *fiber.Ctx) error {
 		defer rtsp.DeleteViewer(cameraId, &viewer.Uuid)
 		defer muxerWebRTC.Close()
 
-		var videoStart bool
-		noVideo := time.NewTimer(10 * time.Second)
-		for {
-			select {
-			case <-noVideo.C:
-				log.Printf("No packets for 10s closing WebRTC connection %s\n", cameraId)
+		for packet := range viewer.Socket {
+			err = muxerWebRTC.WritePacket(packet)
+			if err != nil {
+				log.Println("WritePacket", err)
 				return
-			case packet := <-viewer.Socket:
-				if packet.IsKeyFrame || audioOnly {
-					noVideo.Reset(10 * time.Second)
-					videoStart = true
-				}
-				if !videoStart && !audioOnly {
-					continue
-				}
-				err = muxerWebRTC.WritePacket(packet)
-				if err != nil {
-					log.Println("WritePacket", err)
-					return
-				}
 			}
 		}
 	}()
