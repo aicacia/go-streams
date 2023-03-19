@@ -6,10 +6,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/aicacia/pubsub"
 	"github.com/aicacia/streams/app/config"
 	"github.com/aicacia/streams/app/models"
-	"github.com/aicacia/streams/app/rtsp/cameras"
-	"github.com/aicacia/streams/pubsub"
+	"github.com/aicacia/streams/app/services"
 	"github.com/deepch/vdk/av"
 	"github.com/deepch/vdk/codec/h264parser"
 	"github.com/deepch/vdk/format/rtspv2"
@@ -25,21 +25,21 @@ var clientsMutex sync.RWMutex
 var clients = make(map[string]*clientST)
 
 type clientST struct {
-	CameraId   string
-	Url        string
-	Running    bool
-	RTSPClient *rtspv2.RTSPClient
-	Closed     bool
-	CloseCh    chan bool
-	Codecs     []av.CodecData
-	Viewers    map[string]bool
+	cameraId string
+	url      string
+	running  bool
+	rtsp     *rtspv2.RTSPClient
+	closed   bool
+	closeCh  chan bool
+	codecs   []av.CodecData
+	viewers  map[string]bool
 }
 
 func IsCameraStreaming(cameraId string) bool {
 	clientsMutex.RLock()
 	defer clientsMutex.RUnlock()
 	if client, ok := clients[cameraId]; ok && client != nil {
-		return client.RTSPClient != nil
+		return client.rtsp != nil
 	} else {
 		return false
 	}
@@ -51,25 +51,25 @@ func runIfNotRunning(camera *models.CameraST) {
 	clientsMutex.RUnlock()
 	if !ok {
 		client = &clientST{
-			CameraId: camera.Id,
-			Url:      camera.RtspUrl,
-			Running:  false,
-			Closed:   false,
-			CloseCh:  make(chan bool, 1),
-			Viewers:  make(map[string]bool),
+			cameraId: camera.Id,
+			url:      camera.RtspUrl,
+			running:  false,
+			closed:   false,
+			closeCh:  make(chan bool, 1),
+			viewers:  make(map[string]bool),
 		}
 		clientsMutex.Lock()
 		clients[camera.Id] = client
 		clientsMutex.Unlock()
 	}
-	if !client.Running {
-		client.Running = true
-		client.Closed = false
-		for len(client.CloseCh) > 0 {
-			<-client.CloseCh
+	if !client.running {
+		client.running = true
+		client.closed = false
+		for len(client.closeCh) > 0 {
+			<-client.closeCh
 		}
 		log.Printf("%s: Starting %s\n", camera.Id, camera.RtspUrl)
-		go worker_loop(camera.Id, camera.RtspUrl)
+		go workerLoop(camera.Id, camera.RtspUrl)
 	}
 }
 
@@ -77,8 +77,8 @@ func clientSendQuit(cameraId string) {
 	clientsMutex.Lock()
 	defer clientsMutex.Unlock()
 	if client, ok := clients[cameraId]; ok && client != nil {
-		client.Closed = true
-		client.CloseCh <- true
+		client.closed = true
+		client.closeCh <- true
 	}
 }
 
@@ -93,7 +93,7 @@ func clientStop(cameraId string) {
 	clientsMutex.Lock()
 	defer clientsMutex.Unlock()
 	if client, ok := clients[cameraId]; ok && client != nil {
-		client.Running = false
+		client.running = false
 	}
 }
 
@@ -101,7 +101,7 @@ func clientSetRTSPClient(cameraId string, rtsp_client *rtspv2.RTSPClient) {
 	clientsMutex.Lock()
 	defer clientsMutex.Unlock()
 	if client, ok := clients[cameraId]; ok && client != nil {
-		client.RTSPClient = rtsp_client
+		client.rtsp = rtsp_client
 	}
 }
 
@@ -119,7 +119,7 @@ func clientIsRunning(cameraId string) bool {
 	clientsMutex.RLock()
 	defer clientsMutex.RUnlock()
 	if client, ok := clients[cameraId]; ok && client != nil {
-		return client.Running
+		return client.running
 	} else {
 		return false
 	}
@@ -129,7 +129,7 @@ func clientIsClosed(cameraId string) bool {
 	clientsMutex.RLock()
 	defer clientsMutex.RUnlock()
 	if client, ok := clients[cameraId]; ok && client != nil {
-		return client.Closed
+		return client.closed
 	} else {
 		return false
 	}
@@ -147,7 +147,7 @@ func clientCodecsAdd(cameraId string, codecs []av.CodecData) {
 	clientsMutex.Lock()
 	defer clientsMutex.Unlock()
 	if client, ok := clients[cameraId]; ok && client != nil {
-		client.Codecs = codecs
+		client.codecs = codecs
 	}
 }
 
@@ -156,7 +156,7 @@ func WaitForClient(cameraId string) {
 		clientsMutex.RLock()
 		client, ok := clients[cameraId]
 		clientsMutex.RUnlock()
-		if ok && client != nil && client.Running {
+		if ok && client != nil && client.running {
 			break
 		}
 		time.Sleep(100 * time.Millisecond)
@@ -166,38 +166,10 @@ func WaitForClient(cameraId string) {
 func GetCurrentCodecs(cameraId string) []av.CodecData {
 	clientsMutex.RLock()
 	defer clientsMutex.RUnlock()
-	if client, ok := clients[cameraId]; ok && client != nil && client.Codecs != nil {
-		valid_codecs := len(client.Codecs) > 0
-		for _, codec := range client.Codecs {
-			if codec.Type() == av.H264 {
-				codecVideo, ok := codec.(h264parser.CodecData)
-				if !ok || codecVideo.SPS() == nil || codecVideo.PPS() == nil || len(codecVideo.SPS()) <= 0 || len(codecVideo.PPS()) <= 0 {
-					valid_codecs = false
-					break
-				}
-			}
-		}
-		if valid_codecs {
-			return client.Codecs
-		}
+	if client, ok := clients[cameraId]; ok && client != nil && client.codecs != nil {
+		return client.codecs
 	}
 	return nil
-}
-
-type simpleCodecDataST struct {
-	codecType av.CodecType
-}
-
-func (s simpleCodecDataST) Type() av.CodecType {
-	return s.codecType
-}
-
-func CreateCodecDataFromCodecTypes(codecTypes []av.CodecType) []av.CodecData {
-	var codecs []av.CodecData
-	for _, codecType := range codecTypes {
-		codecs = append(codecs, simpleCodecDataST{codecType: codecType})
-	}
-	return codecs
 }
 
 func GetCodecs(cameraId string) []av.CodecData {
@@ -206,24 +178,24 @@ func GetCodecs(cameraId string) []av.CodecData {
 		client, ok := clients[cameraId]
 		clientsMutex.RUnlock()
 		if !ok || client == nil {
-			log.Printf("%s: No client\n", client.Url)
+			log.Printf("%s: No client\n", client.url)
 			return nil
 		}
-		if client.Codecs != nil {
-			valid_codecs := len(client.Codecs) > 0
-			for _, codec := range client.Codecs {
+		if client.codecs != nil {
+			valid_codecs := len(client.codecs) > 0
+			for _, codec := range client.codecs {
 				if codec.Type() == av.H264 {
 					codecVideo, ok := codec.(h264parser.CodecData)
 					if !ok || codecVideo.SPS() == nil || codecVideo.PPS() == nil || len(codecVideo.SPS()) <= 0 || len(codecVideo.PPS()) <= 0 {
-						log.Printf("%s: Bad Video Codec SPS or PPS Wait\n", client.Url)
+						log.Printf("%s: Bad Video Codec SPS or PPS Wait\n", client.url)
 						valid_codecs = false
 						break
 					}
 				}
 			}
 			if valid_codecs {
-				log.Printf("%s: Ok Video Ready to play\n", client.Url)
-				return client.Codecs
+				log.Printf("%s: Ok Video Ready to play\n", client.url)
+				return client.codecs
 			}
 		}
 		time.Sleep(100 * time.Millisecond)
@@ -234,26 +206,41 @@ func GetCodecs(cameraId string) []av.CodecData {
 var viewersMutex sync.RWMutex
 var viewers = make(map[string]*ViewerST)
 
-const viewerChanSize = 1000
+const viewerChanSize = 1024
+
+func setPacketTime(packet *av.Packet) *av.Packet {
+	packet.Time = time.Duration(time.Now().UTC().UnixNano())
+	return packet
+}
+
+func GetPacketTime(packet *av.Packet) time.Time {
+	return time.UnixMicro(packet.Time.Microseconds()).UTC()
+}
 
 type ViewerST struct {
 	Uuid   uuid.UUID
-	Socket chan av.Packet
+	Socket chan *av.Packet
 }
 
 func AddViewer(cameraId string) *ViewerST {
-	clientsMutex.Lock()
-	defer clientsMutex.Unlock()
-	if client, ok := clients[cameraId]; ok && client != nil {
+	clientsMutex.RLock()
+	client, ok := clients[cameraId]
+	clientsMutex.RUnlock()
+	if ok && client != nil {
 		viewer := ViewerST{
 			Uuid:   uuid.New(),
-			Socket: make(chan av.Packet, viewerChanSize),
+			Socket: make(chan *av.Packet, viewerChanSize),
 		}
 		uuid := viewer.Uuid.String()
-		client.Viewers[uuid] = true
+
+		clientsMutex.Lock()
+		client.viewers[uuid] = true
+		clientsMutex.Unlock()
+
 		viewersMutex.Lock()
 		viewers[uuid] = &viewer
 		viewersMutex.Unlock()
+
 		return &viewer
 	}
 	return nil
@@ -264,7 +251,7 @@ func DeleteViewer(cameraId string, uuid *uuid.UUID) {
 	defer clientsMutex.Unlock()
 	if client, ok := clients[cameraId]; ok && client != nil {
 		uuidString := uuid.String()
-		delete(client.Viewers, uuidString)
+		delete(client.viewers, uuidString)
 		viewersMutex.Lock()
 		delete(viewers, uuidString)
 		viewersMutex.Unlock()
@@ -272,18 +259,17 @@ func DeleteViewer(cameraId string, uuid *uuid.UUID) {
 	}
 }
 
-func (v *ViewerST) cast(packet av.Packet) {
+func (v *ViewerST) cast(packet *av.Packet) {
 	if len(v.Socket) < cap(v.Socket) {
 		v.Socket <- packet
 	}
 }
 
-func cast(cameraId string, packet av.Packet) {
+func cast(cameraId string, packet *av.Packet) {
 	clientsMutex.RLock()
-	client, ok := clients[cameraId]
-	clientsMutex.RUnlock()
-	if ok && client != nil {
-		for id := range client.Viewers {
+	defer clientsMutex.RUnlock()
+	if client, ok := clients[cameraId]; ok && client != nil {
+		for id := range client.viewers {
 			viewersMutex.RLock()
 			viewer, ok := viewers[id]
 			viewersMutex.RUnlock()
@@ -296,7 +282,7 @@ func cast(cameraId string, packet av.Packet) {
 
 const max_wait_s = time.Duration(30) * time.Second
 
-func worker_loop(cameraId, url string) {
+func workerLoop(cameraId, url string) {
 	defer clientStop(cameraId)
 	wait_s := time.Duration(1) * time.Second
 	for {
@@ -342,7 +328,7 @@ func worker(cameraId, url string) (bool, error) {
 	if !ok || client == nil {
 		return true, ErrorRTSPClientNoClient
 	}
-	quitCh := &client.CloseCh
+	quitCh := &client.closeCh
 	for {
 		select {
 		case quit := <-*quitCh:
@@ -359,19 +345,21 @@ func worker(cameraId, url string) (bool, error) {
 				return false, ErrorRTSPClientExitRtspDisconnect
 			}
 		case packetAV := <-rtsp_client.OutgoingPacketQueue:
-			cast(cameraId, *packetAV)
+			cast(cameraId, setPacketTime(packetAV))
 		}
 	}
 }
 
-func runClients(subscriber *pubsub.Subscriber[cameras.CameraEventST]) {
+func runClients(subscriber *pubsub.Subscriber[services.CameraEvent]) {
 	defer subscriber.Close()
 
-	for event := range subscriber.C {
-		switch event.Type {
-		case cameras.Added:
+	for e := range subscriber.C {
+		switch (*e).Type() {
+		case services.CameraAdded:
+			event := (*e).(*services.AddCameraEvent)
 			runIfNotRunning(event.Camera)
-		case cameras.Updated:
+		case services.CameraUpdated:
+			event := (*e).(*services.UpdateCameraEvent)
 			if event.Camera.Disabled {
 				clientDelete(event.Camera.Id)
 			} else if event.PrevCamera != nil {
@@ -379,13 +367,14 @@ func runClients(subscriber *pubsub.Subscriber[cameras.CameraEventST]) {
 			} else {
 				runIfNotRunning(event.Camera)
 			}
-		case cameras.Deleted:
+		case services.CameraDeleted:
+			event := (*e).(*services.DeleteCameraEvent)
 			clientDelete(event.Camera.Id)
 		}
 	}
 }
 
 func InitClients() {
-	subscriber := cameras.EventPubSub.Subscribe()
+	subscriber := services.CameraEventPubSub.Subscribe()
 	go runClients(subscriber)
 }

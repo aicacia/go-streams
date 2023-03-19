@@ -5,6 +5,7 @@ go 1.19
 replace github.com/deepch/vdk => ../vdk
 
 require (
+	github.com/aicacia/pubsub v0.0.0-20230319142906-418db868fcb1
 	github.com/deepch/vdk v0.0.20-0.20221025082420-f567925cf99d
 	github.com/gofiber/fiber/v2 v2.42.0
 	github.com/gofiber/swagger v0.1.9

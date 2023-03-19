@@ -8,6 +8,7 @@ import (
 	"github.com/aicacia/streams/app"
 	"github.com/aicacia/streams/app/config"
 	"github.com/aicacia/streams/app/rtsp"
+	"github.com/aicacia/streams/app/services"
 	_ "github.com/aicacia/streams/docs"
 	"github.com/aicacia/streams/pkg/router"
 	"github.com/gofiber/fiber/v2"
@@ -40,7 +41,7 @@ func main() {
 	rtsp.InitClients()
 	rtsp.InitRecord()
 
-	rtsp.InitCameras()
+	services.InitCameras()
 
 	// https://docs.gofiber.io/api/fiber#config
 	app := fiber.New(fiber.Config{

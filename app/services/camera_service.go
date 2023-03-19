@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log"
 	"os"
 	"path"
 	"path/filepath"
@@ -13,7 +14,6 @@ import (
 
 	"github.com/aicacia/streams/app/config"
 	"github.com/aicacia/streams/app/models"
-	"github.com/aicacia/streams/app/rtsp/cameras"
 	"github.com/google/uuid"
 )
 
@@ -110,7 +110,7 @@ func CreateCamera(create_camera *CameraCreateST) (*models.CameraST, error) {
 	if writeErr != nil {
 		return nil, writeErr
 	}
-	cameras.AddCamera(&camera)
+	onAddCamera(&camera)
 	return &camera, nil
 }
 
@@ -124,10 +124,11 @@ type CameraUpdateST struct {
 
 func UpdateCamera(id string, update_camera *CameraUpdateST) (*models.CameraST, error) {
 	path := cameraPath(id)
-	camera, err := readCamera(path)
+	prevCamera, err := readCamera(path)
 	if err != nil {
 		return nil, err
 	}
+	camera := *prevCamera
 	if update_camera.Name != nil {
 		camera.Name = *update_camera.Name
 	}
@@ -144,11 +145,25 @@ func UpdateCamera(id string, update_camera *CameraUpdateST) (*models.CameraST, e
 		camera.Recording = *update_camera.Recording
 	}
 	camera.UpdatedTs = time.Now().UTC()
-	update_err := writeCamera(path, camera)
+	update_err := writeCamera(path, &camera)
 	if update_err != nil {
 		return nil, update_err
 	}
-	cameras.UpdateCamera(camera)
+	onUpdateCamera(&camera, prevCamera)
+	return &camera, nil
+}
+
+func DeleteCamera(id string) (*models.CameraST, error) {
+	path := cameraPath(id)
+	camera, err := readCamera(path)
+	if err != nil {
+		return nil, err
+	}
+	err = os.Remove(path)
+	if err != nil {
+		return nil, err
+	}
+	onRemoveCamera(camera)
 	return camera, nil
 }
 
@@ -163,5 +178,15 @@ func createCameraUUID(retries int) (string, error) {
 		} else {
 			retries--
 		}
+	}
+}
+
+func InitCameras() {
+	allCameras, err := ListCameras()
+	if err != nil {
+		log.Fatal(err)
+	}
+	for _, camera := range allCameras {
+		onAddCamera(camera)
 	}
 }

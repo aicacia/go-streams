@@ -101,7 +101,7 @@ func PostLiveSdp(c *fiber.Ctx) error {
 		defer muxerWebRTC.Close()
 
 		for packet := range viewer.Socket {
-			err = muxerWebRTC.WritePacket(packet)
+			err = muxerWebRTC.WritePacket(*packet)
 			if err != nil {
 				log.Println("WritePacket", err)
 				return

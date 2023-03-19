@@ -1,13 +1,16 @@
 package util
 
 import (
+	"bufio"
 	"bytes"
 	"crypto/tls"
 	"encoding/gob"
 	"hash/fnv"
+	"io"
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/deepch/vdk/av"
 )
@@ -96,4 +99,44 @@ func ReverseBytes(s []byte) []byte {
 		s[i], s[j] = s[j], s[i]
 	}
 	return s
+}
+
+func TruncateToMinute(t time.Time) time.Time {
+	return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), 0, 0, t.Location())
+}
+
+func createScanLines(delim []byte) bufio.SplitFunc {
+	return func(data []byte, atEOF bool) (advance int, token []byte, err error) {
+		if atEOF && len(data) == 0 {
+			return 0, nil, nil
+		}
+		for i := 0; i+len(delim) <= len(data); {
+			j := i + bytes.IndexByte(data[i:], delim[0])
+			if j < i {
+				break
+			}
+			if bytes.Equal(data[j+1:j+len(delim)], delim[1:]) {
+				return j + len(delim), data[0:j], nil
+			}
+			i = j + 1
+		}
+		if atEOF {
+			return len(data), data, nil
+		}
+		return 0, nil, nil
+	}
+}
+
+func NewDelimScanner(r io.Reader, delim []byte) *bufio.Scanner {
+	scanner := bufio.NewScanner(r)
+	scanner.Split(createScanLines(delim))
+	return scanner
+}
+
+func CopyMap[T any](m map[string]T) map[string]T {
+	cp := make(map[string]T)
+	for k, v := range m {
+		cp[k] = v
+	}
+	return cp
 }

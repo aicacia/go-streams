@@ -8,7 +8,7 @@ import (
 
 	"github.com/aicacia/streams/app/config"
 	"github.com/aicacia/streams/app/models"
-	"github.com/aicacia/streams/app/rtsp"
+	"github.com/aicacia/streams/app/playback"
 	"github.com/aicacia/streams/app/util"
 	webrtc "github.com/deepch/vdk/format/webrtcv3"
 	"github.com/gofiber/fiber/v2"
@@ -44,7 +44,7 @@ func PostCreatePlayback(c *fiber.Ctx) error {
 		t := time.UnixMilli(timestampMS).UTC()
 		start = &t
 	}
-	playbackId, err := rtsp.NewPlayback(cameraId, start)
+	playbackId, err := playback.NewPlayback(cameraId, start)
 	if err != nil {
 		c.Status(http.StatusBadRequest)
 		return c.JSON(models.ResponseErrorST{
@@ -71,7 +71,7 @@ func PostCreatePlayback(c *fiber.Ctx) error {
 //		@Router			/playback/{playbackId}/codecs [get]
 func GetPlaybackCodecs(c *fiber.Ctx) error {
 	playbackId := c.Params("playbackId")
-	codecs := rtsp.GetPlaybackCodecs(playbackId)
+	codecs := playback.GetPlaybackCodecs(playbackId)
 	if codecs == nil {
 		c.Status(http.StatusInternalServerError)
 		return c.JSON(models.ResponseErrorST{
@@ -107,7 +107,7 @@ func PostPlaybackSdp(c *fiber.Ctx) error {
 			Error: "Invalid Request Body",
 		})
 	}
-	codecs := rtsp.GetPlaybackCodecs(playbackId)
+	codecs := playback.GetPlaybackCodecs(playbackId)
 	if codecs == nil {
 		c.Status(http.StatusInternalServerError)
 		return c.JSON(models.ResponseErrorST{
@@ -130,7 +130,7 @@ func PostPlaybackSdp(c *fiber.Ctx) error {
 			Error: "Failed to Start stream",
 		})
 	}
-	socket := rtsp.GetPlaybackSocket(playbackId)
+	socket := playback.GetPlaybackSocket(playbackId)
 	if socket == nil {
 		log.Printf("Failed to create viewer for %s\n", playbackId)
 		c.Status(http.StatusInternalServerError)
@@ -140,11 +140,11 @@ func PostPlaybackSdp(c *fiber.Ctx) error {
 	}
 
 	go func() {
-		defer rtsp.PlaybackDelete(playbackId)
+		defer playback.PlaybackDelete(playbackId)
 		defer muxerWebRTC.Close()
 
 		for packet := range socket {
-			err = muxerWebRTC.WritePacket(packet)
+			err = muxerWebRTC.WritePacket(*packet)
 			if err != nil {
 				log.Println("WritePacket", err)
 				return

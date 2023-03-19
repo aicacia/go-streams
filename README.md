@@ -13,6 +13,7 @@
 ## Local Dev
 
 -   run `make run`
+-   run `swag init` to generate swagger docs
 
 ## Build
 
