@@ -50,7 +50,7 @@ func (element *Muxer) WriteHeader(streams []av.CodecData) error {
 
 func (element *Muxer) WritePacket(pkt *av.Packet) (err error) {
 	file := element.files[pkt.Idx]
-	bytes := make([]byte, 0, 1+8+8+len(pkt.Data)+len(StartCode)) // size of data plus keyframe, duration, and timestamp
+	bytes := make([]byte, 0)
 
 	if pkt.IsKeyFrame {
 		bytes = append(bytes, 1)

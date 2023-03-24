@@ -7,6 +7,7 @@ import (
 
 	"github.com/aicacia/streams/app/config"
 	"github.com/aicacia/streams/app/rtsp"
+	"github.com/aicacia/streams/app/util"
 	"github.com/deepch/vdk/av"
 	"github.com/google/uuid"
 )
@@ -211,9 +212,14 @@ func playbackWorker(playbackId, cameraId string, socket chan *av.Packet, current
 		}
 		setPlaybackCodecs(playbackId, player.Codecs())
 		player.Start()
+		packetTime := currentTime
 		for packet := range player.Stream() {
-			currentTime = rtsp.GetPacketTime(packet)
+			packetTime = rtsp.GetPacketTime(packet)
 			socket <- packet
+		}
+		currentTime = packetTime
+		if currentTime.Equal(packetTime) {
+			currentTime = util.TruncateToMinute(currentTime.Add(time.Minute))
 		}
 		log.Printf("%s: done with %s", cameraId, currentTime)
 	}

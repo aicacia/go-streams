@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/aicacia/streams/app/format"
+	"github.com/aicacia/streams/app/rtsp"
 	"github.com/deepch/vdk/av"
 )
 
@@ -20,6 +21,7 @@ type Player struct {
 	direction   int8
 	rate        float32
 	demuxers    []*format.Demuxer
+	closed      bool
 	stream      chan *av.Packet
 }
 
@@ -49,6 +51,7 @@ func NewPlayer(folder string, currentTime *time.Time, direction int8, rate float
 		direction:   direction,
 		rate:        rate,
 		demuxers:    demuxers,
+		closed:      false,
 		stream:      make(chan *av.Packet, playerChanSize),
 	}, nil
 }
@@ -80,6 +83,7 @@ func (p *Player) Close() error {
 		}
 	}
 	close(p.stream)
+	p.closed = true
 	return nil
 }
 
@@ -87,6 +91,12 @@ func (p *Player) Stream() chan *av.Packet {
 	p.mutex.RLock()
 	defer p.mutex.RUnlock()
 	return p.stream
+}
+
+func (p *Player) Codec(idx int8) av.CodecData {
+	p.mutex.RLock()
+	defer p.mutex.RUnlock()
+	return p.demuxers[idx].Codec()
 }
 
 func (p *Player) Direction() int8 {
@@ -101,28 +111,80 @@ func (p *Player) readPacket(idx int8) (*av.Packet, error) {
 	return p.demuxers[idx].ReadPacket(p.direction)
 }
 
-func (p *Player) close(idx int8) (err error) {
+func (p *Player) setCurrentTime(t *time.Time) {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
-	if demuxer := p.demuxers[idx]; demuxer != nil {
+	p.currentTime = t
+}
+
+func (p *Player) getRate() float32 {
+	p.mutex.RLock()
+	defer p.mutex.RUnlock()
+	return p.rate
+}
+
+func (p *Player) SetRate(rate float32) {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+	p.rate = rate
+}
+
+func (p *Player) isClosed() bool {
+	p.mutex.RLock()
+	defer p.mutex.RUnlock()
+	return p.closed
+}
+
+func (p *Player) close(idx int8) (err error) {
+	p.mutex.Lock()
+	demuxer := p.demuxers[idx]
+	if demuxer != nil {
 		err = demuxer.Close()
 		p.demuxers[idx] = nil
-	}
-	for _, demuxer := range p.demuxers {
-		if demuxer != nil {
-			return
+		if demuxer.Codec().Type().IsAudio() {
+			for _, demuxer := range p.demuxers {
+				if demuxer != nil {
+					p.mutex.Unlock()
+					return
+				}
+			}
 		}
 	}
-	defer p.Close()
+	p.mutex.Unlock()
+	err = p.Close()
 	return
 }
 
 func (p *Player) playDemuxer(idx int8) {
+	isVideo := p.Codec(idx).Type().IsVideo()
+	direction := p.direction
+	started := false
 	for {
 		packet, err := p.readPacket(idx)
 		if err != nil {
-			log.Println(err)
+			log.Printf("%d codec failed to read packet %s\n", idx, err)
 			break
+		}
+		packetTime := rtsp.GetPacketTime(packet)
+		if isVideo {
+			if !started {
+				if !packet.IsKeyFrame {
+					continue
+				} else {
+					started = true
+				}
+			}
+			p.setCurrentTime(&packetTime)
+		}
+		var sleepTime time.Duration
+		if direction == PlaybackForward {
+			sleepTime = packetTime.Sub(*p.currentTime) - packet.Duration
+		} else if direction == PlaybackBackward {
+			sleepTime = p.currentTime.Sub(packetTime) - packet.Duration
+		}
+		if sleepTime > 0 {
+			sleepTime = time.Duration(float32(sleepTime) * p.getRate())
+			time.Sleep(sleepTime)
 		}
 		p.stream <- packet
 		time.Sleep(packet.Duration)
