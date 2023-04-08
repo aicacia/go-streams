@@ -69,7 +69,7 @@ func runIfNotRunning(camera *models.CameraST) {
 			<-client.closeCh
 		}
 		log.Printf("%s: Starting %s\n", camera.Id, camera.RtspUrl)
-		go workerLoop(camera.Id, camera.RtspUrl)
+		go rtspWorkerLoop(camera.Id, camera.RtspUrl)
 	}
 }
 
@@ -282,11 +282,11 @@ func cast(cameraId string, packet *av.Packet) {
 
 const max_wait_s = time.Duration(30) * time.Second
 
-func workerLoop(cameraId, url string) {
+func rtspWorkerLoop(cameraId, url string) {
 	defer clientStop(cameraId)
 	wait_s := time.Duration(1) * time.Second
 	for {
-		closed, err := worker(cameraId, url)
+		closed, err := rtspWorker(cameraId, url)
 		if err != nil {
 			log.Printf("%s: Error %s\n", url, err)
 		}
@@ -302,7 +302,7 @@ func workerLoop(cameraId, url string) {
 	}
 }
 
-func worker(cameraId, url string) (bool, error) {
+func rtspWorker(cameraId, url string) (bool, error) {
 	rtsp_client, err := rtspv2.Dial(rtspv2.RTSPClientOptions{
 		URL:              url,
 		DisableAudio:     false,

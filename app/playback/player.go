@@ -21,6 +21,7 @@ type Player struct {
 	direction   int8
 	rate        float32
 	demuxers    []*format.Demuxer
+	running     []bool
 	closed      bool
 	stream      chan *av.Packet
 }
@@ -75,16 +76,24 @@ func (p *Player) Codecs() []av.CodecData {
 }
 
 func (p *Player) Close() error {
-	p.mutex.Lock()
-	defer p.mutex.Unlock()
-	for _, demuxer := range p.demuxers {
-		if demuxer != nil {
-			demuxer.Close()
+	if !p.closed {
+		p.mutex.Lock()
+		defer p.mutex.Unlock()
+		for _, demuxer := range p.demuxers {
+			if demuxer != nil {
+				demuxer.Close()
+			}
 		}
+		p.closed = true
+		close(p.stream)
 	}
-	close(p.stream)
-	p.closed = true
 	return nil
+}
+
+func (p *Player) IsClosed() bool {
+	p.mutex.RLock()
+	defer p.mutex.RUnlock()
+	return p.closed
 }
 
 func (p *Player) Stream() chan *av.Packet {
@@ -117,6 +126,12 @@ func (p *Player) setCurrentTime(t *time.Time) {
 	p.currentTime = t
 }
 
+func (p *Player) GetCurrentTime() *time.Time {
+	p.mutex.RLock()
+	defer p.mutex.RUnlock()
+	return p.currentTime
+}
+
 func (p *Player) getRate() float32 {
 	p.mutex.RLock()
 	defer p.mutex.RUnlock()
@@ -129,28 +144,33 @@ func (p *Player) SetRate(rate float32) {
 	p.rate = rate
 }
 
-func (p *Player) isClosed() bool {
-	p.mutex.RLock()
-	defer p.mutex.RUnlock()
-	return p.closed
-}
-
 func (p *Player) close(idx int8) (err error) {
-	p.mutex.Lock()
+	p.mutex.RLock()
 	demuxer := p.demuxers[idx]
+	p.mutex.RUnlock()
 	if demuxer != nil {
 		err = demuxer.Close()
+		p.mutex.Lock()
 		p.demuxers[idx] = nil
+		p.mutex.Unlock()
 		if demuxer.Codec().Type().IsAudio() {
+			p.mutex.RLock()
+			hasVideo := false
 			for _, demuxer := range p.demuxers {
-				if demuxer != nil {
-					p.mutex.Unlock()
-					return
+				if demuxer != nil && demuxer.Codec().Type().IsVideo() {
+					hasVideo = true
+					break
 				}
 			}
+			p.mutex.RUnlock()
+			if hasVideo {
+				return
+			}
+		}
+		if err != nil {
+			log.Println("Player demuxer close error", err)
 		}
 	}
-	p.mutex.Unlock()
 	err = p.Close()
 	return
 }
@@ -167,27 +187,38 @@ func (p *Player) playDemuxer(idx int8) {
 		}
 		packetTime := rtsp.GetPacketTime(packet)
 		if isVideo {
+			p.setCurrentTime(&packetTime)
 			if !started {
-				if !packet.IsKeyFrame {
-					continue
-				} else {
+				if packet.IsKeyFrame {
 					started = true
+				} else {
+					continue
 				}
 			}
-			p.setCurrentTime(&packetTime)
 		}
 		var sleepTime time.Duration
 		if direction == PlaybackForward {
-			sleepTime = packetTime.Sub(*p.currentTime) - packet.Duration
+			sleepTime = packetTime.Sub(*p.GetCurrentTime()) - packet.Duration
 		} else if direction == PlaybackBackward {
-			sleepTime = p.currentTime.Sub(packetTime) - packet.Duration
+			sleepTime = p.GetCurrentTime().Sub(packetTime) - packet.Duration
 		}
 		if sleepTime > 0 {
-			sleepTime = time.Duration(float32(sleepTime) * p.getRate())
+			sleepTime = time.Duration(float32(sleepTime) / p.getRate())
 			time.Sleep(sleepTime)
+			if p.IsClosed() {
+				break
+			}
 		}
 		p.stream <- packet
-		time.Sleep(packet.Duration)
+		nextPacketTime := time.Duration(float32(packet.Duration) / p.getRate())
+		time.Sleep(nextPacketTime)
+		if p.IsClosed() {
+			break
+		}
 	}
-	p.close(idx)
+	if isVideo {
+		p.Close()
+	} else {
+		p.close(idx)
+	}
 }

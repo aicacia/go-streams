@@ -201,6 +201,7 @@ func playbackWorker(playbackId, cameraId string, socket chan *av.Packet, current
 	defer playbackStop(playbackId)
 	for {
 		if playbackIsClosed(playbackId) {
+			log.Printf("%s: playback closed\n", playbackId)
 			break
 		}
 		log.Printf("%s: playing %s", cameraId, currentTime)
@@ -208,19 +209,38 @@ func playbackWorker(playbackId, cameraId string, socket chan *av.Packet, current
 		player, err := NewPlayer(folder, &currentTime, GetPlaybackDirection(playbackId), GetPlaybackRate(playbackId))
 		if err != nil {
 			log.Printf("%s: failed to create demuxer %s", cameraId, err)
-			break
+			if GetPlaybackDirection(playbackId) == PlaybackForward {
+				currentTime = util.TruncateToMinute(currentTime.Add(time.Minute))
+			} else {
+				currentTime = util.TruncateToMinute(currentTime.Add(-time.Minute))
+			}
+			continue
 		}
 		setPlaybackCodecs(playbackId, player.Codecs())
 		player.Start()
-		packetTime := currentTime
-		for packet := range player.Stream() {
-			packetTime = rtsp.GetPacketTime(packet)
-			socket <- packet
-		}
-		currentTime = packetTime
-		if currentTime.Equal(packetTime) {
-			currentTime = util.TruncateToMinute(currentTime.Add(time.Minute))
+		var packetTime time.Time
+		stream := player.Stream()
+		for {
+			if packet, ok := <-stream; ok {
+				packetTime = rtsp.GetPacketTime(packet)
+				socket <- packet
+			}
+			if playbackIsClosed(playbackId) {
+				player.Close()
+				break
+			}
+			if player.IsClosed() {
+				break
+			}
 		}
 		log.Printf("%s: done with %s", cameraId, currentTime)
+		currentTime = packetTime
+		if currentTime.Equal(packetTime) {
+			if GetPlaybackDirection(playbackId) == PlaybackForward {
+				currentTime = util.TruncateToMinute(currentTime.Add(time.Minute))
+			} else {
+				currentTime = util.TruncateToMinute(currentTime.Add(-time.Minute))
+			}
+		}
 	}
 }

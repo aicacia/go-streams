@@ -120,15 +120,13 @@ func startRecording(cameraId string, packets chan *av.Packet) {
 			}
 			nextMinute = util.TruncateToMinute(currentTime.Add(time.Minute))
 		}
-		if packet.IsKeyFrame {
-			if currentTime.After(nextMinute) {
-				muxer.Close()
-				muxer = nil
-				goto Muxer
-			} else if !IsRecording(cameraId) {
-				muxer.Close()
-				break
-			}
+		if currentTime.After(nextMinute) {
+			muxer.Close()
+			muxer = nil
+			goto Muxer
+		} else if !IsRecording(cameraId) {
+			muxer.Close()
+			break
 		}
 		err := muxer.WritePacket(packet)
 		if err != nil {

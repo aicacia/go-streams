@@ -20,7 +20,7 @@ type Demuxer struct {
 	scanner *bufio.Scanner
 }
 
-const maxCapacity = 1024 * 1024
+const maxCapacity = 1024 * 1024 * 8
 
 func NewDemuxer(folder string, idx int8) (*Demuxer, error) {
 	var codec av.CodecData
